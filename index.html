@@ -95,7 +95,7 @@
     .mode-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
     .mode-row button.active { background:#0a84ff; }
 
-    /* Tag next to words — smaller & blue */
+    /* Tag next to words — SMALLER & NOT BOLD */
     .tag {
       display:inline-block;
       font-size:0.55em;
@@ -107,7 +107,7 @@
       color:#6eb1ff;
       vertical-align:middle;
       letter-spacing:.02em;
-      font-weight:600;
+      font-weight:400; /* not bold */
     }
 
     /* Editor */
@@ -146,7 +146,7 @@
 </head>
 <body class="page-1">
   <!-- Stamp (all pages) -->
-  <div id="stamp">Jimmy James - 13.08.2025 - 14:58</div>
+  <div id="stamp">Jimmy James - 13.08.2025 - 22:49</div>
 
   <!-- Global topbar -->
   <div id="topbar">
@@ -219,10 +219,7 @@
 
     <!-- RIGHT: Grid + reset + modes + bottom prompt -->
     <section class="page" id="rightPage">
-      <div id="gridHelp">
-        Tap to select; long-press <strong>1.5s</strong> <em>or</em> <strong>tap–tap then hold (~0.9s)</strong> to edit & rename.
-        Badge shows order (Sequential), ✓ (Combine), or ● (Single).
-      </div>
+      <div id="gridHelp">Tap to select; long-press <strong>1.5s</strong> to edit & rename. Badge shows order (Sequential), ✓ (Combine), or ● (Single).</div>
       <div id="listGrid" aria-label="Lists grid"></div>
 
       <div class="row" style="margin-top:10px;">
@@ -274,7 +271,9 @@
 
     let lists = Object.fromEntries(LETTERS.map(l => [l, []]));
     let names = Object.fromEntries(LETTERS.map(l => [l, ''])); // user-given names only
-    let meta  = Object.fromEntries(LETTERS.map(l => [l, {}])); // timestamps for "Sort by Added"
+
+    // metadata: first-added timestamps for each entry per list
+    let meta = Object.fromEntries(LETTERS.map(l => [l, {}])); // { letter: { "item text": epochMs } }
 
     let selectedOrder = []; // used by all modes
     let mode = 'sequential'; // 'sequential' | 'combine' | 'single'
@@ -380,14 +379,14 @@
         btn.appendChild(nameSpan);
         btn.appendChild(badge);
 
-        // Tap: selection behavior depends on mode
-        btn.addEventListener('click', () => {
-          if (btn._lpFired) { btn._lpFired = false; return; } // suppress click after editor gesture
+        // Tap: behavior depends on mode
+        btn.addEventListener('click', (e) => {
+          if (btn._lpFired) { btn._lpFired = false; return; } // suppress click after long-press
           onListButtonTap(l);
         });
 
-        // Editor gestures: long-press (1.5s) OR tap–tap then hold (~0.9s)
-        attachEditGestures(btn, 1500, 900, () => openEditor(l));
+        // Long-press (1.5 seconds): open editor (rename + full list edit)
+        attachLongPress(btn, 1500, () => openEditor(l));
 
         listGrid.appendChild(btn);
       });
@@ -449,6 +448,7 @@
     function ensureMeta(letter){
       const m = meta[letter] || (meta[letter] = {});
       const arr = (lists[letter] || []);
+      // if some items missing timestamps, assign in current order
       let t = Date.now();
       for (let i=0;i<arr.length;i++){
         const v = arr[i];
@@ -469,16 +469,18 @@
 
     saveListBtn.addEventListener('click', () => {
       const letter = currentList;
-      names[letter] = (listNameInput.value || '').trim();
+      names[letter] = (listNameInput.value || '').trim(); // user name overrides
       localStorage.setItem('promptListNames', JSON.stringify(names));
       refreshListNamesUI();
 
-      // Save list + timestamps
+      // Save list + refresh meta (keep existing timestamps; add new ones)
       const oldMeta = meta[letter] || {};
       const now = Date.now();
       const lines = listTextarea.value.split('\n').map(x => cleanItem(x)).filter(Boolean);
       const newMeta = {};
-      lines.forEach((v, i) => { newMeta[v] = oldMeta.hasOwnProperty(v) ? oldMeta[v] : (now + i); });
+      lines.forEach((v, i) => {
+        newMeta[v] = oldMeta.hasOwnProperty(v) ? oldMeta[v] : (now + i);
+      });
       meta[letter] = newMeta;
       lists[letter] = lines;
 
@@ -535,6 +537,7 @@
     }
 
     function updateRightPrompt(html){
+      // preserve scroll positions
       const pageScroll = rightPage.scrollTop;
       const boxScroll = outputRightBox.scrollTop;
       outputRight.innerHTML = html;
@@ -568,7 +571,7 @@
       }
 
       output.innerHTML = html;
-      updateRightPrompt(html);
+      updateRightPrompt(html); // mirror to right-page dock
       if (soundOn) speak(output.textContent);
     }
 
@@ -644,6 +647,7 @@
       modeCombineBtn.classList.toggle('active', mode==='combine');
       modeSingleBtn.classList.toggle('active', mode==='single');
 
+      // Enforce single-selection constraint when switching to 'single'
       if (mode === 'single') {
         if (!selectedOrder.length) selectedOrder = [currentList];
         else selectedOrder = [selectedOrder[0]];
@@ -704,7 +708,7 @@
       generatePrompt();
     });
 
-    // Desktop keyboard: any key advances (except when typing)
+    // ===== Desktop keyboard: Enter and ANY key advance (unless typing/shortcuts) =====
     function editorOpen(){ return editorPage && editorPage.style.display === 'flex'; }
     function isEditableTarget(el){
       return el && (
@@ -713,20 +717,20 @@
       );
     }
     document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (isEditableTarget(e.target) || editorOpen()) return;
-      if (e.key === ' ' || e.code === 'Space') e.preventDefault();
-      generatePrompt();
+      if (e.ctrlKey || e.metaKey || e.altKey) return;               // keep shortcuts
+      if (isEditableTarget(e.target) || editorOpen()) return;       // don't advance while typing
+      if (e.key === ' ' || e.code === 'Space') e.preventDefault();  // stop page scroll
+      generatePrompt();                                             // any key advances
     });
 
     // ===== Import / Export =====
     exportBtn.addEventListener('click', ()=>{
       const data = {
-        version: 8,
+        version: 7,
         letters: LETTERS,
         lists,
         names,
-        meta,
+        meta, // include timestamps for chronological sort
         selectedOrder,
         mode,
         showTags,
@@ -812,86 +816,45 @@
       else if (dx < -SWIPE_X) goRight();
     }, {passive:true});
 
-    // ===== Editor gesture helper: long-press + (tap–tap then hold) =====
-    function attachEditGestures(el, holdMs, seqHoldMs, onFire){
-      let holdTimer=null, startX=0, startY=0, down=false, downAt=0;
-      const MOVE_TH=15, QUICK_TAP_MS=220, DOUBLE_MS=350, ARM_WINDOW_MS=1200;
+    // ===== Utils =====
+    function attachLongPress(el, ms, fn){
+      let t=null, startX=0, startY=0;
+      const TH=15;
 
-      // sequence memory
-      el._armed = false;        // true after tap–tap; next hold uses seqHoldMs
-      el._armTO = null;
-      el._lastQuickTap = 0;
-      el._quickCount = 0;
-
-      function beginHold(ms){
-        clearTimeout(holdTimer);
-        holdTimer = setTimeout(()=>{
-          el._lpFired = true;      // suppress following click
-          // disarm sequence once fired
-          if (el._armed){ el._armed = false; clearTimeout(el._armTO); el._armTO=null; el._quickCount=0; }
-          onFire();
-        }, ms);
+      function start(x,y){
+        clearTimeout(t);
+        el._lpFired = false;
+        startX=x; startY=y;
+        t=setTimeout(()=>{ el._lpFired=true; fn(); }, ms);
       }
-      function cancelHold(){ clearTimeout(holdTimer); holdTimer=null; }
-
-      function displaceTooFar(x,y){ return (Math.abs(x-startX)>MOVE_TH || Math.abs(y-startY)>MOVE_TH); }
-
-      function handleQuickTap(now, dur, moved){
-        if (dur <= QUICK_TAP_MS && !moved){
-          if (now - el._lastQuickTap <= DOUBLE_MS){ el._quickCount++; }
-          else { el._quickCount = 1; }
-          el._lastQuickTap = now;
-
-          if (el._quickCount >= 2){
-            el._armed = true; // enable short hold on next press
-            clearTimeout(el._armTO);
-            el._armTO = setTimeout(()=>{ el._armed=false; el._quickCount=0; }, ARM_WINDOW_MS);
-          }
-        } else {
-          el._quickCount = 0;
-        }
+      function move(x,y){
+        if (!t) return;
+        if (Math.abs(x-startX)>TH || Math.abs(y-startY)>TH){ clearTimeout(t); t=null; }
       }
+      function end(){ if (t){ clearTimeout(t); t=null; } }
 
-      // TOUCH
-      el.addEventListener('touchstart', (e)=>{
+      // Touch
+      el.addEventListener('touchstart', e=>{
         if (e.touches.length!==1) return;
-        down=true;
-        const p=e.touches[0]; startX=p.clientX; startY=p.clientY; downAt=performance.now();
-        beginHold(el._armed ? seqHoldMs : holdMs);
+        const p=e.touches[0]; start(p.clientX,p.clientY);
       }, {passive:true});
-
-      el.addEventListener('touchmove', (e)=>{
-        if (!down) return;
-        const p=e.touches[0];
-        if (displaceTooFar(p.clientX, p.clientY)) { cancelHold(); }
+      el.addEventListener('touchmove', e=>{
+        if (!t) return;
+        const p=e.touches[0]; move(p.clientX,p.clientY);
       }, {passive:true});
+      el.addEventListener('touchend', end, {passive:true});
+      el.addEventListener('touchcancel', end, {passive:true});
 
-      el.addEventListener('touchend', (e)=>{
-        if (!down) return; down=false;
-        const now=performance.now();
-        const dur=now - downAt;
-        // if hold fired, click handler will be suppressed via _lpFired
-        if (holdTimer){ cancelHold(); handleQuickTap(now, dur, false); }
-      }, {passive:true});
-
-      el.addEventListener('touchcancel', ()=>{ down=false; cancelHold(); }, {passive:true});
-
-      // MOUSE (desktop)
-      el.addEventListener('mousedown', (e)=>{
-        if (e.button!==0) return;
-        down=true; startX=e.clientX; startY=e.clientY; downAt=performance.now();
-        beginHold(el._armed ? seqHoldMs : holdMs);
+      // Mouse (hold)
+      el.addEventListener('mousedown', e=>{
+        if (e.button!==0) return; // left button only
+        start(e.clientX, e.clientY);
       });
-      document.addEventListener('mousemove', (e)=>{ if (!down) return; if (displaceTooFar(e.clientX,e.clientY)) cancelHold(); });
-      document.addEventListener('mouseup', (e)=>{
-        if (!down) return; down=false;
-        const now=performance.now(), dur=now-downAt;
-        if (holdTimer){ cancelHold(); handleQuickTap(now, dur, false); }
-      });
+      document.addEventListener('mousemove', e=>{ if (!t) return; move(e.clientX,e.clientY); });
+      document.addEventListener('mouseup', end);
     }
 
     // ===== Load / Boot =====
-    function updateTagsBtn(){ tagsBtn.textContent = showTags ? '🏷 Tags: ON' : '🏷 Tags: OFF'; }
     function loadState(){
       // lists
       LETTERS.forEach(l=>{
@@ -912,6 +875,7 @@
           const mraw = localStorage.getItem('promptListMeta_'+l);
           meta[l] = mraw ? JSON.parse(mraw) || {} : {};
         }catch{ meta[l] = {}; }
+        // if meta empty, seed with current order so "Sort by Added" respects existing ordering
         if (!meta[l] || typeof meta[l] !== 'object') meta[l] = {};
         if ((lists[l]||[]).length){
           let base = Date.now();
@@ -935,11 +899,14 @@
       const mt = parseInt(localStorage.getItem('minTime'),10); if (Number.isFinite(mt)) minTime = mt;
       const mx = parseInt(localStorage.getItem('maxTime'),10); if (Number.isFinite(mx)) maxTime = mx;
 
+      // mode
       const savedMode = localStorage.getItem('mode');
       if (['sequential','combine','single'].includes(savedMode)) mode = savedMode;
 
+      // If single mode with no selection yet, seed it
       if (mode === 'single' && !selectedOrder.length) selectedOrder = [currentList];
 
+      // UI reflect
       updateAutoBtn(); updateSoundBtn(); updateTagsBtn();
       volRange.value = Math.round(volume*100); volReadout.textContent = 'Volume: ' + Math.round(volume*100) + '%';
       rateRange.value = Math.round(rate*100);  rateReadout.textContent = 'Rate: ' + rate.toFixed(2) + '×';
