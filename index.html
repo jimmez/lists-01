@@ -5,7 +5,7 @@
   <title>Prompt Generator (25 Lists · Sequential / Combine / Single)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <style>
-    :root { --maxw: 560px; --pad: 10px; }
+    :root { --maxw: 560px; --pad: 10px; --rightPromptH: 120px; }
 
     * { box-sizing: border-box; }
     html, body { margin:0; padding:0; background:#000; color:#fff; font-family: Arial, sans-serif; }
@@ -68,7 +68,7 @@
     .timing-row button.active { background:#0a84ff; }
 
     /* RIGHT (Lists / Selection) */
-    #rightPage { padding-bottom: 120px; } /* space so sticky prompt doesn't overlap grid */
+    #rightPage { padding-bottom: calc(var(--rightPromptH) + 16px); } /* ensure content doesn't hide behind dock */
     #gridHelp { font-size:12px; color:#aaa; margin:4px 0 10px; text-align:center; }
     #listGrid {
       display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:8px; width:100%; max-width: var(--maxw);
@@ -91,7 +91,7 @@
     }
     .listBtn.active .badge { display:flex; }
 
-    /* Mode buttons on right page */
+    /* Mode buttons on right page (won't move because dock has fixed height) */
     .mode-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
     .mode-row button.active { background:#0a84ff; }
 
@@ -122,12 +122,19 @@
     }
     .editor-actions { display:flex; gap:8px; flex-wrap:wrap; }
 
-    /* Sticky mini prompt at bottom of right page */
+    /* Bottom prompt dock on RIGHT page — fixed height, internal scroll */
     .bottomPrompt {
       position: sticky; bottom: 0; width: 100%;
       background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.85) 40%, #000 100%);
-      padding: 10px 6px 8px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      padding: 8px 6px 8px; display:flex; flex-direction:column; align-items:center; justify-content:center;
       border-top: 1px solid #222;
+      height: var(--rightPromptH);
+    }
+    #outputRightBox {
+      width:100%; max-width: var(--maxw);
+      height: calc(var(--rightPromptH) - 30px); /* leave room for tiny hint */
+      overflow:auto;
+      display:flex; align-items:center; justify-content:center;
     }
     #outputRight {
       text-align:center; font-weight:700; line-height:1.18;
@@ -135,6 +142,7 @@
       word-break: break-word;
       max-width: var(--maxw);
       user-select:none;
+      padding: 2px 6px 6px;
     }
   </style>
 </head>
@@ -228,9 +236,11 @@
         <button id="modeSingle" title="Use exactly one selected list at a time">Single</button>
       </div>
 
-      <!-- Sticky bottom prompt on page 3 -->
+      <!-- Sticky bottom prompt on page 3 (fixed height, internal scroll) -->
       <div id="rightPromptWrap" class="bottomPrompt" title="Tap for next prompt">
-        <div id="outputRight">Your prompt will also appear here.</div>
+        <div id="outputRightBox">
+          <div id="outputRight">Your prompt will also appear here.</div>
+        </div>
         <div class="hint small">Tap here (or anywhere on this page) for next</div>
       </div>
     </section>
@@ -281,6 +291,7 @@
     const pages = document.getElementById('pages');
     const output = document.getElementById('output');
     const outputRight = document.getElementById('outputRight');
+    const outputRightBox = document.getElementById('outputRightBox');
     const tapZone = document.getElementById('tapZone');
     const rightPage = document.getElementById('rightPage');
 
@@ -367,7 +378,7 @@
         btn.appendChild(badge);
 
         // Tap: selection behavior depends on mode
-        btn.addEventListener('click', () => toggleSelected(l));
+        btn.addEventListener('click', () => onListButtonTap(l));
 
         // Long-press (2.5 seconds): open editor (rename + full list edit)
         attachLongPress(btn, 2500, () => openEditor(l));
@@ -407,14 +418,20 @@
       localStorage.setItem('selectedOrder', JSON.stringify(selectedOrder));
     }
 
-    function toggleSelected(letter) {
+    function onListButtonTap(letter){
       if (mode === 'single') {
         selectedOrder = [letter];
+        refreshSelectionBadges();
+        generatePromptFrom(letter); // immediate prompt from that list
       } else {
-        const idx = selectedOrder.indexOf(letter);
-        if (idx >= 0) selectedOrder.splice(idx, 1);
-        else selectedOrder.push(letter);
+        toggleSelected(letter);
       }
+    }
+
+    function toggleSelected(letter) {
+      const idx = selectedOrder.indexOf(letter);
+      if (idx >= 0) selectedOrder.splice(idx, 1);
+      else selectedOrder.push(letter);
       refreshSelectionBadges();
       generatePrompt();
     }
@@ -486,6 +503,16 @@
       return `<span class="w${letter}">${escapeHtml(txt)}${tag}</span>`;
     }
 
+    function updateRightPrompt(html){
+      // preserve scroll positions
+      const pageScroll = rightPage.scrollTop;
+      const boxScroll = outputRightBox.scrollTop;
+      outputRight.innerHTML = html;
+      // restore scrolls
+      rightPage.scrollTop = pageScroll;
+      outputRightBox.scrollTop = boxScroll;
+    }
+
     function generatePrompt() {
       let html = '';
 
@@ -509,7 +536,15 @@
       }
 
       output.innerHTML = html;
-      outputRight.innerHTML = html; // mirror to right-page mini prompt
+      updateRightPrompt(html); // mirror to right-page dock
+      if (soundOn) speak(output.textContent);
+    }
+
+    function generatePromptFrom(letter){
+      const it = getRandomFrom(letter);
+      const html = it ? wordHtml(letter, cleanItem(it)) : `[No items in ${getTagLabel(letter)}]`;
+      output.innerHTML = html;
+      updateRightPrompt(html);
       if (soundOn) speak(output.textContent);
     }
 
@@ -632,6 +667,11 @@
       if (e.target.closest('button, input, select, textarea')) return;
       generatePrompt();
     });
+    // Also allow tapping the dock to advance
+    document.getElementById('rightPromptWrap').addEventListener('click', (e)=>{
+      if (e.target.closest('button, input, select, textarea')) return;
+      generatePrompt();
+    });
 
     // ===== Desktop keyboard: Enter and ANY key advance (unless typing/shortcuts) =====
     function editorOpen(){ return editorPage && editorPage.style.display === 'flex'; }
@@ -658,7 +698,7 @@
     // ===== Import / Export =====
     exportBtn.addEventListener('click', ()=>{
       const data = {
-        version: 3,
+        version: 4,
         letters: LETTERS,
         lists,
         names,
