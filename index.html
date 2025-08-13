@@ -125,7 +125,7 @@
     /* Bottom prompt dock on RIGHT page — fixed height, no extra spacer, text starts at top */
     .bottomPrompt {
       position: sticky; bottom: 0; width: 100%;
-      background:#000; /* solid so nothing overlays first line */
+      background:#000;
       border-top: 1px solid #222;
       height: var(--rightPromptH);
       padding: 6px; display:flex; align-items:stretch; justify-content:center;
@@ -133,9 +133,7 @@
     #outputRightBox {
       width:100%; max-width: var(--maxw);
       height: 100%;
-      overflow: auto;           /* scroll inside when long */
-      display: block;           /* start at top */
-      padding: 2px 4px;
+      overflow: auto; display: block; padding: 2px 4px;
     }
     #outputRight {
       text-align:center; font-weight:700; line-height:1.18;
@@ -148,7 +146,7 @@
 </head>
 <body class="page-1">
   <!-- Stamp (all pages) -->
-  <div id="stamp">Jimmy James - 13.08.2025 - 11:41:</div>
+  <div id="stamp">Jimmy James - 13.08.2025 - 14:58</div>
 
   <!-- Global topbar -->
   <div id="topbar">
@@ -221,7 +219,7 @@
 
     <!-- RIGHT: Grid + reset + modes + bottom prompt -->
     <section class="page" id="rightPage">
-      <div id="gridHelp">Tap to select; long-press <strong>2.5s</strong> to edit & rename. Badge shows order (Sequential), ✓ (Combine), or ● (Single).</div>
+      <div id="gridHelp">Tap to select; long-press <strong>1.5s</strong> to edit & rename. Badge shows order (Sequential), ✓ (Combine), or ● (Single).</div>
       <div id="listGrid" aria-label="Lists grid"></div>
 
       <div class="row" style="margin-top:10px;">
@@ -260,6 +258,7 @@
       <div class="editor-actions">
         <button id="dedupe" class="btn btn-outline">🧹 Dedupe</button>
         <button id="sortAZ" class="btn btn-outline">🔤 Sort A–Z</button>
+        <button id="sortByTime" class="btn btn-outline">🕒 Sort by Added</button>
         <button id="clearList" class="btn btn-outline">🗑 Clear</button>
       </div>
     </div>
@@ -272,6 +271,9 @@
 
     let lists = Object.fromEntries(LETTERS.map(l => [l, []]));
     let names = Object.fromEntries(LETTERS.map(l => [l, ''])); // user-given names only
+
+    // metadata: first-added timestamps for each entry per list
+    let meta = Object.fromEntries(LETTERS.map(l => [l, {}])); // { letter: { "item text": epochMs } }
 
     let selectedOrder = []; // used by all modes
     let mode = 'sequential'; // 'sequential' | 'combine' | 'single'
@@ -336,6 +338,7 @@
     const cancelEditBtn = document.getElementById('cancelEdit');
     const dedupeBtn = document.getElementById('dedupe');
     const sortAZBtn = document.getElementById('sortAZ');
+    const sortByTimeBtn = document.getElementById('sortByTime');
     const clearListBtn = document.getElementById('clearList');
 
     // ===== Dynamic color palette for 25 lists (A–Y) =====
@@ -376,14 +379,14 @@
         btn.appendChild(nameSpan);
         btn.appendChild(badge);
 
-        // Tap: selection behavior depends on mode
+        // Tap: behavior depends on mode
         btn.addEventListener('click', (e) => {
           if (btn._lpFired) { btn._lpFired = false; return; } // suppress click after long-press
           onListButtonTap(l);
         });
 
-        // Long-press (2.5 seconds): open editor (rename + full list edit)
-        attachLongPress(btn, 2500, () => openEditor(l));
+        // Long-press (1.5 seconds): open editor (rename + full list edit)
+        attachLongPress(btn, 1500, () => openEditor(l));
 
         listGrid.appendChild(btn);
       });
@@ -404,17 +407,14 @@
         const badge = btn.querySelector('.badge');
         const idx = selectedOrder.indexOf(l);
         if (mode === 'sequential') {
-          if (idx >= 0) {
-            btn.classList.add('active'); badge.textContent = String(idx + 1);
-          } else { btn.classList.remove('active'); badge.textContent = ''; }
+          if (idx >= 0) { btn.classList.add('active'); badge.textContent = String(idx + 1); }
+          else { btn.classList.remove('active'); badge.textContent = ''; }
         } else if (mode === 'combine') {
-          if (idx >= 0) {
-            btn.classList.add('active'); badge.textContent = '✓';
-          } else { btn.classList.remove('active'); badge.textContent = ''; }
+          if (idx >= 0) { btn.classList.add('active'); badge.textContent = '✓'; }
+          else { btn.classList.remove('active'); badge.textContent = ''; }
         } else { // single
-          if (selectedOrder[0] === l) {
-            btn.classList.add('active'); badge.textContent = '●';
-          } else { btn.classList.remove('active'); badge.textContent = ''; }
+          if (selectedOrder[0] === l) { btn.classList.add('active'); badge.textContent = '●'; }
+          else { btn.classList.remove('active'); badge.textContent = ''; }
         }
       });
       localStorage.setItem('selectedOrder', JSON.stringify(selectedOrder));
@@ -445,8 +445,20 @@
     });
 
     // ===== Editor (full page) =====
+    function ensureMeta(letter){
+      const m = meta[letter] || (meta[letter] = {});
+      const arr = (lists[letter] || []);
+      // if some items missing timestamps, assign in current order
+      let t = Date.now();
+      for (let i=0;i<arr.length;i++){
+        const v = arr[i];
+        if (!m.hasOwnProperty(v)) m[v] = t + i;
+      }
+    }
+
     function openEditor(letter) {
       currentList = letter;
+      ensureMeta(letter);
       editorLetter.textContent = letter;
       listNameInput.value = names[letter] || '';
       listTextarea.value = (lists[letter] || []).join('\n');
@@ -461,9 +473,19 @@
       localStorage.setItem('promptListNames', JSON.stringify(names));
       refreshListNamesUI();
 
+      // Save list + refresh meta (keep existing timestamps; add new ones)
+      const oldMeta = meta[letter] || {};
+      const now = Date.now();
       const lines = listTextarea.value.split('\n').map(x => cleanItem(x)).filter(Boolean);
+      const newMeta = {};
+      lines.forEach((v, i) => {
+        newMeta[v] = oldMeta.hasOwnProperty(v) ? oldMeta[v] : (now + i);
+      });
+      meta[letter] = newMeta;
       lists[letter] = lines;
+
       localStorage.setItem('promptList_' + letter, JSON.stringify(lists[letter]));
+      localStorage.setItem('promptListMeta_' + letter, JSON.stringify(meta[letter]));
 
       closeEditor();
       generatePrompt();
@@ -482,6 +504,15 @@
       const arr = listTextarea.value.split('\n').map(x => cleanItem(x)).filter(Boolean);
       arr.sort((a,b)=>a.localeCompare(b));
       listTextarea.value = arr.join('\n');
+    });
+    sortByTimeBtn.addEventListener('click', () => {
+      const letter = currentList;
+      ensureMeta(letter);
+      const m = meta[letter];
+      const arr = listTextarea.value.split('\n').map(x => cleanItem(x)).filter(Boolean);
+      const withIdx = arr.map((v, idx) => ({v, idx, t: m.hasOwnProperty(v) ? m[v] : Number.MAX_SAFE_INTEGER}));
+      withIdx.sort((a,b)=> a.t===b.t ? a.idx-b.idx : a.t-b.t);
+      listTextarea.value = withIdx.map(o=>o.v).join('\n');
     });
     clearListBtn.addEventListener('click', () => {
       if (confirm('Clear all entries?')) listTextarea.value = '';
@@ -510,7 +541,6 @@
       const pageScroll = rightPage.scrollTop;
       const boxScroll = outputRightBox.scrollTop;
       outputRight.innerHTML = html;
-      // restore/clamp after layout
       requestAnimationFrame(() => {
         const maxScroll = Math.max(0, outputRightBox.scrollHeight - outputRightBox.clientHeight);
         outputRightBox.scrollTop = Math.min(boxScroll, maxScroll);
@@ -687,26 +717,20 @@
       );
     }
     document.addEventListener('keydown', (e) => {
-      // Keep browser/system shortcuts working
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-      // Don't advance when typing/editing
-      if (isEditableTarget(e.target) || editorOpen()) return;
-
-      // Prevent page scrolling on Space
-      if (e.key === ' ' || e.code === 'Space') e.preventDefault();
-
-      // Any key -> next prompt (Enter, letters, arrows, etc.)
-      generatePrompt();
+      if (e.ctrlKey || e.metaKey || e.altKey) return;               // keep shortcuts
+      if (isEditableTarget(e.target) || editorOpen()) return;       // don't advance while typing
+      if (e.key === ' ' || e.code === 'Space') e.preventDefault();  // stop page scroll
+      generatePrompt();                                             // any key advances
     });
 
     // ===== Import / Export =====
     exportBtn.addEventListener('click', ()=>{
       const data = {
-        version: 6,
+        version: 7,
         letters: LETTERS,
         lists,
         names,
+        meta, // include timestamps for chronological sort
         selectedOrder,
         mode,
         showTags,
@@ -725,8 +749,21 @@
       reader.onload = ()=>{
         try{
           const data = JSON.parse(reader.result);
-          if (data.lists) LETTERS.forEach(l=>{ lists[l] = Array.isArray(data.lists[l]) ? data.lists[l].map(cleanItem).filter(Boolean) : []; localStorage.setItem('promptList_'+l, JSON.stringify(lists[l])); });
-          if (data.names) { names = {...Object.fromEntries(LETTERS.map(l=>[l,''])), ...data.names }; localStorage.setItem('promptListNames', JSON.stringify(names)); refreshListNamesUI(); }
+          if (data.lists) LETTERS.forEach(l=>{
+            lists[l] = Array.isArray(data.lists[l]) ? data.lists[l].map(cleanItem).filter(Boolean) : [];
+            localStorage.setItem('promptList_'+l, JSON.stringify(lists[l]));
+          });
+          if (data.names) {
+            names = {...Object.fromEntries(LETTERS.map(l=>[l,''])), ...data.names };
+            localStorage.setItem('promptListNames', JSON.stringify(names));
+            refreshListNamesUI();
+          }
+          if (data.meta) {
+            LETTERS.forEach(l=>{
+              const m = data.meta[l]; meta[l] = m && typeof m==='object' ? m : {};
+              localStorage.setItem('promptListMeta_'+l, JSON.stringify(meta[l]));
+            });
+          }
           if (Array.isArray(data.selectedOrder)) { selectedOrder = data.selectedOrder.filter(x=>LETTERS.includes(x)); }
           if (['sequential','combine','single'].includes(data.mode)) { mode = data.mode; }
           showTags = !!data.showTags;
@@ -781,13 +818,13 @@
 
     // ===== Utils =====
     function attachLongPress(el, ms, fn){
-      let t=null, startX=0, startY=0, moved=false;
+      let t=null, startX=0, startY=0;
       const TH=15;
 
       function start(x,y){
         clearTimeout(t);
         el._lpFired = false;
-        startX=x; startY=y; moved=false;
+        startX=x; startY=y;
         t=setTimeout(()=>{ el._lpFired=true; fn(); }, ms);
       }
       function move(x,y){
@@ -832,6 +869,20 @@
         const sn = JSON.parse(localStorage.getItem('promptListNames')||'{}');
         names = {...names, ...sn};
       }catch{}
+
+      // meta (timestamps)
+      LETTERS.forEach(l=>{
+        try{
+          const mraw = localStorage.getItem('promptListMeta_'+l);
+          meta[l] = mraw ? JSON.parse(mraw) || {} : {};
+        }catch{ meta[l] = {}; }
+        // if meta empty, seed with current order so "Sort by Added" respects existing ordering
+        if (!meta[l] || typeof meta[l] !== 'object') meta[l] = {};
+        if ((lists[l]||[]).length){
+          let base = Date.now();
+          (lists[l]||[]).forEach((v,i)=>{ if (!meta[l].hasOwnProperty(v)) meta[l][v]=base+i; });
+        }
+      });
 
       // selection
       try{
@@ -884,4 +935,3 @@
   </script>
 </body>
 </html>
-
