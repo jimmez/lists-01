@@ -68,7 +68,7 @@
     .timing-row button.active { background:#0a84ff; }
 
     /* RIGHT (Lists / Selection) */
-    #rightPage { padding-bottom: calc(var(--rightPromptH) + 16px); } /* ensure content doesn't hide behind dock */
+    #rightPage { padding-bottom: calc(var(--rightPromptH) + 12px); } /* ensure grid isn't hidden by dock */
     #gridHelp { font-size:12px; color:#aaa; margin:4px 0 10px; text-align:center; }
     #listGrid {
       display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:8px; width:100%; max-width: var(--maxw);
@@ -91,7 +91,7 @@
     }
     .listBtn.active .badge { display:flex; }
 
-    /* Mode buttons on right page (won't move because dock has fixed height) */
+    /* Mode buttons on right page */
     .mode-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
     .mode-row button.active { background:#0a84ff; }
 
@@ -104,7 +104,7 @@
       background: rgba(10,132,255,0.08);
       border: 1px solid rgba(10,132,255,0.55);
       border-radius:999px;
-      color:#6eb1ff;  /* blue text */
+      color:#6eb1ff;
       vertical-align:middle;
       letter-spacing:.02em;
       font-weight:600;
@@ -122,19 +122,20 @@
     }
     .editor-actions { display:flex; gap:8px; flex-wrap:wrap; }
 
-    /* Bottom prompt dock on RIGHT page — fixed height, internal scroll */
+    /* Bottom prompt dock on RIGHT page — fixed height, no extra spacer, text starts at top */
     .bottomPrompt {
       position: sticky; bottom: 0; width: 100%;
-      background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.85) 40%, #000 100%);
-      padding: 8px 6px 8px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      background:#000; /* solid so nothing overlays first line */
       border-top: 1px solid #222;
       height: var(--rightPromptH);
+      padding: 6px; display:flex; align-items:stretch; justify-content:center;
     }
     #outputRightBox {
       width:100%; max-width: var(--maxw);
-      height: calc(var(--rightPromptH) - 30px); /* leave room for tiny hint */
-      overflow:auto;
-      display:flex; align-items:center; justify-content:center;
+      height: 100%;
+      overflow: auto;           /* scroll inside when long */
+      display: block;           /* no centering — start at top */
+      padding: 2px 4px;
     }
     #outputRight {
       text-align:center; font-weight:700; line-height:1.18;
@@ -142,7 +143,6 @@
       word-break: break-word;
       max-width: var(--maxw);
       user-select:none;
-      padding: 2px 6px 6px;
     }
   </style>
 </head>
@@ -236,12 +236,11 @@
         <button id="modeSingle" title="Use exactly one selected list at a time">Single</button>
       </div>
 
-      <!-- Sticky bottom prompt on page 3 (fixed height, internal scroll) -->
+      <!-- Bottom prompt dock (fixed height, scroll inside) -->
       <div id="rightPromptWrap" class="bottomPrompt" title="Tap for next prompt">
         <div id="outputRightBox">
           <div id="outputRight">Your prompt will also appear here.</div>
         </div>
-        <div class="hint small">Tap here (or anywhere on this page) for next</div>
       </div>
     </section>
   </div>
@@ -508,9 +507,12 @@
       const pageScroll = rightPage.scrollTop;
       const boxScroll = outputRightBox.scrollTop;
       outputRight.innerHTML = html;
-      // restore scrolls
-      rightPage.scrollTop = pageScroll;
-      outputRightBox.scrollTop = boxScroll;
+      // restore/clamp after layout
+      requestAnimationFrame(() => {
+        const maxScroll = Math.max(0, outputRightBox.scrollHeight - outputRightBox.clientHeight);
+        outputRightBox.scrollTop = Math.min(boxScroll, maxScroll);
+        rightPage.scrollTop = pageScroll;
+      });
     }
 
     function generatePrompt() {
@@ -667,7 +669,7 @@
       if (e.target.closest('button, input, select, textarea')) return;
       generatePrompt();
     });
-    // Also allow tapping the dock to advance
+    // Also allow tapping the dock to advance (no extra spacer needed)
     document.getElementById('rightPromptWrap').addEventListener('click', (e)=>{
       if (e.target.closest('button, input, select, textarea')) return;
       generatePrompt();
@@ -698,7 +700,7 @@
     // ===== Import / Export =====
     exportBtn.addEventListener('click', ()=>{
       const data = {
-        version: 4,
+        version: 5,
         letters: LETTERS,
         lists,
         names,
@@ -860,3 +862,4 @@
   </script>
 </body>
 </html>
+
