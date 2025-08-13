@@ -68,7 +68,7 @@
     .timing-row button.active { background:#0a84ff; }
 
     /* RIGHT (Lists / Selection) */
-    #rightPage { padding-bottom: calc(var(--rightPromptH) + 12px); } /* ensure grid isn't hidden by dock */
+    #rightPage { padding-bottom: calc(var(--rightPromptH) + 12px); }
     #gridHelp { font-size:12px; color:#aaa; margin:4px 0 10px; text-align:center; }
     #listGrid {
       display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:8px; width:100%; max-width: var(--maxw);
@@ -81,7 +81,7 @@
     .pill {
       width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center;
       font-size:12px; font-weight:700; color:#000; border:1px solid #444; flex-shrink:0;
-      background:#222; /* color filled via dynamic CSS */
+      background:#222;
     }
     .lname { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .badge {
@@ -95,7 +95,7 @@
     .mode-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
     .mode-row button.active { background:#0a84ff; }
 
-    /* Tag next to words — SMALLER & NOT BOLD */
+    /* Tag next to words — SMALL & not bold */
     .tag {
       display:inline-block;
       font-size:0.55em;
@@ -107,7 +107,7 @@
       color:#6eb1ff;
       vertical-align:middle;
       letter-spacing:.02em;
-      font-weight:400; /* not bold */
+      font-weight:400;
     }
 
     /* Editor */
@@ -122,7 +122,7 @@
     }
     .editor-actions { display:flex; gap:8px; flex-wrap:wrap; }
 
-    /* Bottom prompt dock on RIGHT page — fixed height, no extra spacer, text starts at top */
+    /* Bottom prompt dock on RIGHT page */
     .bottomPrompt {
       position: sticky; bottom: 0; width: 100%;
       background:#000;
@@ -146,7 +146,7 @@
 </head>
 <body class="page-1">
   <!-- Stamp (all pages) -->
-  <div id="stamp">Jimmy James - 13.08.2025 - 22:49</div>
+  <div id="stamp">Jimmy James - 13.08.2025 - 22:58</div>
 
   <!-- Global topbar -->
   <div id="topbar">
@@ -219,7 +219,7 @@
 
     <!-- RIGHT: Grid + reset + modes + bottom prompt -->
     <section class="page" id="rightPage">
-      <div id="gridHelp">Tap to select; long-press <strong>1.5s</strong> to edit & rename. Badge shows order (Sequential), ✓ (Combine), or ● (Single).</div>
+      <div id="gridHelp">Tap to select; <strong>triple-tap</strong> (3 quick taps) to edit & rename. Badge shows order (Sequential), ✓ (Combine), or ● (Single).</div>
       <div id="listGrid" aria-label="Lists grid"></div>
 
       <div class="row" style="margin-top:10px;">
@@ -379,14 +379,35 @@
         btn.appendChild(nameSpan);
         btn.appendChild(badge);
 
-        // Tap: behavior depends on mode
-        btn.addEventListener('click', (e) => {
-          if (btn._lpFired) { btn._lpFired = false; return; } // suppress click after long-press
-          onListButtonTap(l);
-        });
+        // ---- Triple-tap to open editor; single tap = select / prompt
+        const TAP_GAP = 300; // ms between taps
+        btn._tapCount = 0;
+        btn._lastTap = 0;
+        btn._singleTimer = null;
 
-        // Long-press (1.5 seconds): open editor (rename + full list edit)
-        attachLongPress(btn, 1500, () => openEditor(l));
+        btn.addEventListener('click', () => {
+          const now = Date.now();
+          if (now - btn._lastTap <= TAP_GAP) {
+            btn._tapCount += 1;
+          } else {
+            btn._tapCount = 1;
+          }
+          btn._lastTap = now;
+
+          // if we might do a single action, defer slightly
+          clearTimeout(btn._singleTimer);
+          if (btn._tapCount >= 3) {
+            btn._tapCount = 0;
+            clearTimeout(btn._singleTimer);
+            openEditor(l);
+            return;
+          }
+          // schedule single-tap action if no more taps arrive
+          btn._singleTimer = setTimeout(() => {
+            if (btn._tapCount === 1) onListButtonTap(l);
+            btn._tapCount = 0;
+          }, TAP_GAP + 40);
+        });
 
         listGrid.appendChild(btn);
       });
@@ -448,7 +469,6 @@
     function ensureMeta(letter){
       const m = meta[letter] || (meta[letter] = {});
       const arr = (lists[letter] || []);
-      // if some items missing timestamps, assign in current order
       let t = Date.now();
       for (let i=0;i<arr.length;i++){
         const v = arr[i];
@@ -469,11 +489,10 @@
 
     saveListBtn.addEventListener('click', () => {
       const letter = currentList;
-      names[letter] = (listNameInput.value || '').trim(); // user name overrides
+      names[letter] = (listNameInput.value || '').trim();
       localStorage.setItem('promptListNames', JSON.stringify(names));
       refreshListNamesUI();
 
-      // Save list + refresh meta (keep existing timestamps; add new ones)
       const oldMeta = meta[letter] || {};
       const now = Date.now();
       const lines = listTextarea.value.split('\n').map(x => cleanItem(x)).filter(Boolean);
@@ -537,7 +556,6 @@
     }
 
     function updateRightPrompt(html){
-      // preserve scroll positions
       const pageScroll = rightPage.scrollTop;
       const boxScroll = outputRightBox.scrollTop;
       outputRight.innerHTML = html;
@@ -571,7 +589,7 @@
       }
 
       output.innerHTML = html;
-      updateRightPrompt(html); // mirror to right-page dock
+      updateRightPrompt(html);
       if (soundOn) speak(output.textContent);
     }
 
@@ -647,7 +665,6 @@
       modeCombineBtn.classList.toggle('active', mode==='combine');
       modeSingleBtn.classList.toggle('active', mode==='single');
 
-      // Enforce single-selection constraint when switching to 'single'
       if (mode === 'single') {
         if (!selectedOrder.length) selectedOrder = [currentList];
         else selectedOrder = [selectedOrder[0]];
@@ -717,20 +734,20 @@
       );
     }
     document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;               // keep shortcuts
-      if (isEditableTarget(e.target) || editorOpen()) return;       // don't advance while typing
-      if (e.key === ' ' || e.code === 'Space') e.preventDefault();  // stop page scroll
-      generatePrompt();                                             // any key advances
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isEditableTarget(e.target) || editorOpen()) return;
+      if (e.key === ' ' || e.code === 'Space') e.preventDefault();
+      generatePrompt();
     });
 
     // ===== Import / Export =====
     exportBtn.addEventListener('click', ()=>{
       const data = {
-        version: 7,
+        version: 8,
         letters: LETTERS,
         lists,
         names,
-        meta, // include timestamps for chronological sort
+        meta,
         selectedOrder,
         mode,
         showTags,
@@ -791,7 +808,7 @@
       reader.readAsText(f);
     });
 
-    // ===== Swipe navigation (left/center/right) =====
+    // ===== Swipe navigation =====
     let pageIndex = 1; // 0=left,1=center,2=right
     function applyPage() {
       pages.style.transform = `translateX(${-(pageIndex)*100}vw)`;
@@ -816,44 +833,6 @@
       else if (dx < -SWIPE_X) goRight();
     }, {passive:true});
 
-    // ===== Utils =====
-    function attachLongPress(el, ms, fn){
-      let t=null, startX=0, startY=0;
-      const TH=15;
-
-      function start(x,y){
-        clearTimeout(t);
-        el._lpFired = false;
-        startX=x; startY=y;
-        t=setTimeout(()=>{ el._lpFired=true; fn(); }, ms);
-      }
-      function move(x,y){
-        if (!t) return;
-        if (Math.abs(x-startX)>TH || Math.abs(y-startY)>TH){ clearTimeout(t); t=null; }
-      }
-      function end(){ if (t){ clearTimeout(t); t=null; } }
-
-      // Touch
-      el.addEventListener('touchstart', e=>{
-        if (e.touches.length!==1) return;
-        const p=e.touches[0]; start(p.clientX,p.clientY);
-      }, {passive:true});
-      el.addEventListener('touchmove', e=>{
-        if (!t) return;
-        const p=e.touches[0]; move(p.clientX,p.clientY);
-      }, {passive:true});
-      el.addEventListener('touchend', end, {passive:true});
-      el.addEventListener('touchcancel', end, {passive:true});
-
-      // Mouse (hold)
-      el.addEventListener('mousedown', e=>{
-        if (e.button!==0) return; // left button only
-        start(e.clientX, e.clientY);
-      });
-      document.addEventListener('mousemove', e=>{ if (!t) return; move(e.clientX,e.clientY); });
-      document.addEventListener('mouseup', end);
-    }
-
     // ===== Load / Boot =====
     function loadState(){
       // lists
@@ -875,7 +854,6 @@
           const mraw = localStorage.getItem('promptListMeta_'+l);
           meta[l] = mraw ? JSON.parse(mraw) || {} : {};
         }catch{ meta[l] = {}; }
-        // if meta empty, seed with current order so "Sort by Added" respects existing ordering
         if (!meta[l] || typeof meta[l] !== 'object') meta[l] = {};
         if ((lists[l]||[]).length){
           let base = Date.now();
@@ -903,7 +881,6 @@
       const savedMode = localStorage.getItem('mode');
       if (['sequential','combine','single'].includes(savedMode)) mode = savedMode;
 
-      // If single mode with no selection yet, seed it
       if (mode === 'single' && !selectedOrder.length) selectedOrder = [currentList];
 
       // UI reflect
@@ -918,7 +895,7 @@
       else if (minTime===30&& maxTime===60) highlightTiming('t30');
       else if (minTime===90&& maxTime===120)highlightTiming('t90');
       else if (minTime===150&&maxTime===300)highlightTiming('t150');
-      else highlightTiming(); // custom
+      else highlightTiming();
       minCustom.value = minTime; maxCustom.value = maxTime;
     }
 
