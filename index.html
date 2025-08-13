@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Prompt Generator (25 Lists · Sequential / Combine / Single)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <style>
+    :root { --maxw: 560px; --pad: 10px; }
+
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; background:#000; color:#fff; font-family: Arial, sans-serif; }
+    body { overflow: hidden; }
+
+    /* Top stamp on ALL pages */
+    #stamp {
+      position: fixed; top: 6px; right: 8px;
+      font-size: 12px; color:#bbb; opacity:.95; z-index: 1000; white-space: nowrap;
+      pointer-events:none;
+    }
+
+    /* Global top bar with Start/Stop + Sound on ALL pages */
+    #topbar {
+      position: fixed; top: 6px; left: 8px; z-index: 1001; display:flex; gap:8px; align-items:center;
+    }
+    #autoBtn, #soundBtn {
+      background:#1a1a1a; border:1px solid #333; color:#fff; border-radius:10px; padding:6px 10px; font-size:13px; cursor:pointer;
+    }
+    /* Big Start/Stop on PROMPT page */
+    body.page-1 #autoBtn { font-size:18px; padding:10px 16px; border-radius:12px; }
+
+    /* PAGES (left=0, center=1, right=2) */
+    #pages {
+      position: fixed; inset: 0; display:flex; width: 300vw; height: 100vh; transform: translateX(-100vw);
+      transition: transform .28s ease;
+      touch-action: pan-y;
+    }
+    .page {
+      width:100vw; height:100vh; padding: 56px 12px 16px; /* top space for bar/stamp */
+      display:flex; flex-direction:column; align-items:center; overflow:auto;
+    }
+
+    /* CENTER (Prompt) */
+    #promptPage main {
+      flex:1; width:100%; max-width: var(--maxw);
+      display:flex; align-items:center; justify-content:center; padding: 8px;
+    }
+    #output {
+      text-align:center; font-weight:800; line-height:1.15;
+      font-size: clamp(24px, 7.5vw, 48px);
+      word-break: break-word;
+      max-width: var(--maxw);
+      user-select:none;
+    }
+    .hint { font-size:12px; color:#aaa; margin-top:8px; opacity:.9; }
+    .hint.small { font-size:11px; opacity:.7; }
+
+    /* LEFT (Controls) */
+    .panel { width:100%; max-width: var(--maxw); display:flex; flex-direction:column; gap:10px; }
+    .card { background:#111; border:1px solid #333; border-radius:12px; padding:10px; }
+    .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    button, .btn {
+      background:#333; color:#fff; border: none; border-radius:8px; padding:6px 10px; font-size:13px; cursor:pointer;
+    }
+    .btn-outline { background:#1a1a1a; border:1px solid #444; }
+    input[type="number"], input[type="text"] {
+      background:#0f0f0f; color:#fff; border:1px solid #444; border-radius:6px; padding:6px 8px; font-size:13px;
+    }
+    .timing-row button.active { background:#0a84ff; }
+
+    /* RIGHT (Lists / Selection) */
+    #rightPage { padding-bottom: 120px; } /* space so sticky prompt doesn't overlap grid */
+    #gridHelp { font-size:12px; color:#aaa; margin:4px 0 10px; text-align:center; }
+    #listGrid {
+      display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:8px; width:100%; max-width: var(--maxw);
+    }
+    @media (min-width: 640px) { #listGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    .listBtn {
+      position:relative; display:flex; align-items:center; gap:8px;
+      background:#1a1a1a; border:1px solid #333; border-radius:12px; padding:8px 10px; min-height:44px;
+    }
+    .pill {
+      width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+      font-size:12px; font-weight:700; color:#000; border:1px solid #444; flex-shrink:0;
+      background:#222; /* color filled via dynamic CSS */
+    }
+    .lname { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .badge {
+      position:absolute; top:-6px; right:-6px; min-width:20px; height:20px; padding:0 5px; border-radius:999px;
+      background:#0a84ff; color:#fff; font-size:12px; display:none; align-items:center; justify-content:center;
+      box-shadow: 0 0 0 1px #0a84ff inset; pointer-events:none;
+    }
+    .listBtn.active .badge { display:flex; }
+
+    /* Mode buttons on right page */
+    .mode-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+    .mode-row button.active { background:#0a84ff; }
+
+    /* Tag next to words — smaller & blue */
+    .tag {
+      display:inline-block;
+      font-size:0.55em;
+      margin-left:4px;
+      padding:1px 5px;
+      background: rgba(10,132,255,0.08);
+      border: 1px solid rgba(10,132,255,0.55);
+      border-radius:999px;
+      color:#6eb1ff;  /* blue text */
+      vertical-align:middle;
+      letter-spacing:.02em;
+      font-weight:600;
+    }
+
+    /* Editor */
+    #editorPage { position: fixed; inset:0; background:#000; z-index:1200; display:none; flex-direction:column; padding:56px 10px 10px; }
+    #editorHeader { position: fixed; top: 6px; left: 8px; right: 8px; z-index: 1201; display:flex; gap:8px; align-items:center; }
+    #editorHeader .title { flex:1; display:flex; gap:8px; align-items:center; background:#111; border:1px solid #333; border-radius:10px; padding:6px 8px; }
+    #listName { flex:1; min-width: 100px; }
+    #editorArea { flex:1; margin-top: 8px; display:flex; flex-direction:column; gap:8px; }
+    #listTextarea {
+      width:100%; height: calc(100vh - 140px); background:#0a0a0a; color:#fff; border:1px solid #333; border-radius:10px;
+      padding:10px; font-size:14px; line-height:1.35; white-space:pre; overflow:auto;
+    }
+    .editor-actions { display:flex; gap:8px; flex-wrap:wrap; }
+
+    /* Sticky mini prompt at bottom of right page */
+    .bottomPrompt {
+      position: sticky; bottom: 0; width: 100%;
+      background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.85) 40%, #000 100%);
+      padding: 10px 6px 8px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      border-top: 1px solid #222;
+    }
+    #outputRight {
+      text-align:center; font-weight:700; line-height:1.18;
+      font-size: clamp(16px, 4.5vw, 24px);
+      word-break: break-word;
+      max-width: var(--maxw);
+      user-select:none;
+    }
+  </style>
+</head>
+<body class="page-1">
+  <!-- Stamp (all pages) -->
+  <div id="stamp">Jimmy James - 13.08.2025 - 11:41:</div>
+
+  <!-- Global topbar -->
+  <div id="topbar">
+    <button id="autoBtn" title="Start/Stop autoplay">▶️ Start</button>
+    <button id="soundBtn" title="Toggle audio">🔊 Sound: ON</button>
+  </div>
+
+  <!-- Three swipe pages -->
+  <div id="pages" aria-live="polite">
+    <!-- LEFT: Controls -->
+    <section class="page" id="leftPage">
+      <div class="panel">
+        <div class="card">
+          <div class="row"><strong>Timer presets</strong></div>
+          <div class="row timing-row">
+            <button id="t5">5–10s</button>
+            <button id="t10" class="active">10–20s</button>
+            <button id="t30">30–60s</button>
+            <button id="t90">90–120s</button>
+            <button id="t150">150–300s</button>
+          </div>
+          <div class="row">
+            Custom:
+            <input type="number" id="minCustom" value="10" min="1" style="width:70px">–
+            <input type="number" id="maxCustom" value="20" min="1" style="width:70px">s
+            <button id="applyCustom">Set</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row"><strong>Audio</strong></div>
+          <div class="row">
+            <span id="volReadout" class="btn btn-outline">Volume: 100%</span>
+            <input id="volRange" type="range" min="0" max="100" value="100" />
+          </div>
+          <div class="row">
+            <span id="rateReadout" class="btn btn-outline">Rate: 1.00×</span>
+            <input id="rateRange" type="range" min="60" max="160" value="100" />
+          </div>
+          <div class="row">
+            <button id="voiceRandom" class="btn btn-outline" title="Random voice per prompt">🎲 Voice: OFF</button>
+            <button id="tagsBtn" class="btn btn-outline" title="Show list tag next to words">🏷 Tags: OFF</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row"><strong>Data</strong></div>
+          <div class="row">
+            <button id="exportBtn">⬇️ Export JSON</button>
+            <button id="importBtn">⬆️ Import JSON</button>
+            <input type="file" id="importFile" accept="application/json" hidden>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row" style="font-size:12px;color:#aaa">
+            Swipe right for Lists/Selection • Swipe left to return to Prompt
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CENTER: Prompt -->
+    <section class="page" id="promptPage">
+      <main id="tapZone" title="Tap anywhere for next prompt">
+        <div id="output">Your prompt will appear here.</div>
+      </main>
+      <div class="hint">Tap anywhere for next • Swipe left/right for other pages</div>
+    </section>
+
+    <!-- RIGHT: Grid + reset + modes + bottom prompt -->
+    <section class="page" id="rightPage">
+      <div id="gridHelp">Tap to select; long-press <strong>2s</strong> to edit & rename. Badge shows order (Sequential), ✓ (Combine), or ● (Single).</div>
+      <div id="listGrid" aria-label="Lists grid"></div>
+
+      <div class="row" style="margin-top:10px;">
+        <button id="resetSeq" class="btn btn-outline" title="Clear selection">♻️ Clear Selection</button>
+      </div>
+
+      <!-- Mode buttons below grid controls -->
+      <div class="mode-row" id="modeRowRight">
+        <strong style="margin-right:4px;">Mode:</strong>
+        <button id="modeSequential" class="active" title="Show one from each selected list, in order">Sequential</button>
+        <button id="modeCombine" title="Show one random prompt from any selected list">Combine</button>
+        <button id="modeSingle" title="Use exactly one selected list at a time">Single</button>
+      </div>
+
+      <!-- Sticky bottom prompt on page 3 -->
+      <div id="rightPromptWrap" class="bottomPrompt" title="Tap for next prompt">
+        <div id="outputRight">Your prompt will also appear here.</div>
+        <div class="hint small">Tap here (or anywhere on this page) for next</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Full-page EDITOR -->
+  <div id="editorPage" role="dialog" aria-modal="true" aria-label="Edit list">
+    <div id="editorHeader">
+      <div class="title">
+        <strong id="editorLetter" style="min-width:24px;text-align:center"></strong>
+        <input id="listName" type="text" placeholder="List name…" />
+      </div>
+      <button id="saveList" class="btn">💾 Save</button>
+      <button id="cancelEdit" class="btn btn-outline">✕ Close</button>
+    </div>
+    <div id="editorArea">
+      <textarea id="listTextarea" placeholder="One entry per line. Edit freely, paste, cut, delete."></textarea>
+      <div class="editor-actions">
+        <button id="dedupe" class="btn btn-outline">🧹 Dedupe</button>
+        <button id="sortAZ" class="btn btn-outline">🔤 Sort A–Z</button>
+        <button id="clearList" class="btn btn-outline">🗑 Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== Core state =====
+    const LETTERS = Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ').slice(0,25); // A..Y (25 lists)
+    let currentList = 'A';
+
+    let lists = Object.fromEntries(LETTERS.map(l => [l, []]));
+    let names = Object.fromEntries(LETTERS.map(l => [l, ''])); // user-given names only
+
+    let selectedOrder = []; // used by all modes
+    let mode = 'sequential'; // 'sequential' | 'combine' | 'single'
+    let showTags = false;
+
+    let autoPlay = false;
+    let soundOn = true;
+    let minTime = 10, maxTime = 20;
+    let timer = null;
+
+    let volume = 1.0, rate = 1.0;
+    let randomVoicePerPrompt = false;
+    let voicePool = [];
+
+    // ===== Elements =====
+    const pages = document.getElementById('pages');
+    const output = document.getElementById('output');
+    const outputRight = document.getElementById('outputRight');
+    const tapZone = document.getElementById('tapZone');
+    const rightPage = document.getElementById('rightPage');
+
+    const autoBtn = document.getElementById('autoBtn');
+    const soundBtn = document.getElementById('soundBtn');
+
+    // Mode buttons (RIGHT page)
+    const modeSequentialBtn = document.getElementById('modeSequential');
+    const modeCombineBtn = document.getElementById('modeCombine');
+    const modeSingleBtn = document.getElementById('modeSingle');
+
+    // Controls page
+    const t5 = document.getElementById('t5');
+    const t10= document.getElementById('t10');
+    const t30= document.getElementById('t30');
+    const t90= document.getElementById('t90');
+    const t150=document.getElementById('t150');
+    const minCustom = document.getElementById('minCustom');
+    const maxCustom = document.getElementById('maxCustom');
+    const applyCustom = document.getElementById('applyCustom');
+
+    const volRange = document.getElementById('volRange');
+    const rateRange= document.getElementById('rateRange');
+    const volReadout= document.getElementById('volReadout');
+    const rateReadout= document.getElementById('rateReadout');
+    const voiceRandom= document.getElementById('voiceRandom');
+    const tagsBtn = document.getElementById('tagsBtn');
+
+    const exportBtn = document.getElementById('exportBtn');
+    const importBtn = document.getElementById('importBtn');
+    const importFile= document.getElementById('importFile');
+
+    // Right page
+    const listGrid = document.getElementById('listGrid');
+    const resetSeq = document.getElementById('resetSeq');
+
+    // Editor
+    const editorPage = document.getElementById('editorPage');
+    const editorLetter = document.getElementById('editorLetter');
+    const listNameInput = document.getElementById('listName');
+    const listTextarea = document.getElementById('listTextarea');
+    const saveListBtn = document.getElementById('saveList');
+    const cancelEditBtn = document.getElementById('cancelEdit');
+    const dedupeBtn = document.getElementById('dedupe');
+    const sortAZBtn = document.getElementById('sortAZ');
+    const clearListBtn = document.getElementById('clearList');
+
+    // ===== Dynamic color palette for 25 lists (A–Y) =====
+    const PALETTE = [
+      '#2ecc71','#3498db','#e67e22','#9b59b6','#e74c3c',
+      '#1abc9c','#f1c40f','#95a5a6','#ff6b6b','#bdc3c7',
+      '#00bcd4','#ff9800','#7cb342','#ffc107','#ff4081',
+      '#8e44ad','#16a085','#d35400','#27ae60','#2980b9',
+      '#ec407a','#26a69a','#ab47bc','#66bb6a','#ffa726'
+    ];
+    (function injectColors(){
+      const css = LETTERS.map((l,i)=>`.w${l}{color:${PALETTE[i%PALETTE.length]}} .${l}{background:${PALETTE[i%PALETTE.length]}}`).join('\n');
+      const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+    })();
+
+    // ===== Build list grid (single 25-button set) =====
+    function buildListGrid() {
+      listGrid.innerHTML = '';
+      LETTERS.forEach(l => {
+        const btn = document.createElement('button');
+        btn.className = 'listBtn';
+        btn.id = 'lb_' + l;
+        btn.dataset.letter = l;
+
+        const pill = document.createElement('div');
+        pill.className = 'pill ' + l;
+        pill.textContent = l;
+
+        const nameSpan = document.createElement('div');
+        nameSpan.className = 'lname';
+        nameSpan.textContent = names[l] || '';
+
+        const badge = document.createElement('div');
+        badge.className = 'badge';
+        badge.textContent = '';
+
+        btn.appendChild(pill);
+        btn.appendChild(nameSpan);
+        btn.appendChild(badge);
+
+        // Tap: selection behavior depends on mode
+        btn.addEventListener('click', () => toggleSelected(l));
+
+        // Long-press (2 seconds): open editor (rename + full list edit)
+        attachLongPress(btn, 2000, () => openEditor(l));
+
+        listGrid.appendChild(btn);
+      });
+      refreshSelectionBadges();
+    }
+
+    function refreshListNamesUI() {
+      LETTERS.forEach(l => {
+        const el = document.querySelector('#lb_' + l + ' .lname');
+        if (el) el.textContent = names[l] || '';
+      });
+    }
+
+    function refreshSelectionBadges() {
+      LETTERS.forEach(l => {
+        const btn = document.getElementById('lb_' + l);
+        if (!btn) return;
+        const badge = btn.querySelector('.badge');
+        const idx = selectedOrder.indexOf(l);
+        if (mode === 'sequential') {
+          if (idx >= 0) {
+            btn.classList.add('active'); badge.textContent = String(idx + 1);
+          } else { btn.classList.remove('active'); badge.textContent = ''; }
+        } else if (mode === 'combine') {
+          if (idx >= 0) {
+            btn.classList.add('active'); badge.textContent = '✓';
+          } else { btn.classList.remove('active'); badge.textContent = ''; }
+        } else { // single
+          if (selectedOrder[0] === l) {
+            btn.classList.add('active'); badge.textContent = '●';
+          } else { btn.classList.remove('active'); badge.textContent = ''; }
+        }
+      });
+      localStorage.setItem('selectedOrder', JSON.stringify(selectedOrder));
+    }
+
+    function toggleSelected(letter) {
+      if (mode === 'single') {
+        selectedOrder = [letter];
+      } else {
+        const idx = selectedOrder.indexOf(letter);
+        if (idx >= 0) selectedOrder.splice(idx, 1);
+        else selectedOrder.push(letter);
+      }
+      refreshSelectionBadges();
+      generatePrompt();
+    }
+
+    resetSeq.addEventListener('click', () => {
+      selectedOrder = [];
+      refreshSelectionBadges();
+      generatePrompt();
+    });
+
+    // ===== Editor (full page) =====
+    function openEditor(letter) {
+      currentList = letter;
+      editorLetter.textContent = letter;
+      listNameInput.value = names[letter] || '';
+      listTextarea.value = (lists[letter] || []).join('\n');
+      editorPage.style.display = 'flex';
+    }
+    function closeEditor() { editorPage.style.display = 'none'; }
+    cancelEditBtn.addEventListener('click', closeEditor);
+
+    saveListBtn.addEventListener('click', () => {
+      const letter = currentList;
+      names[letter] = (listNameInput.value || '').trim(); // user name overrides
+      localStorage.setItem('promptListNames', JSON.stringify(names));
+      refreshListNamesUI();
+
+      const lines = listTextarea.value.split('\n').map(x => cleanItem(x)).filter(Boolean);
+      lists[letter] = lines;
+      localStorage.setItem('promptList_' + letter, JSON.stringify(lists[letter]));
+
+      closeEditor();
+      generatePrompt();
+    });
+
+    dedupeBtn.addEventListener('click', () => {
+      const seen = new Set();
+      const out = [];
+      listTextarea.value.split('\n').forEach(line => {
+        const c = cleanItem(line);
+        if (c && !seen.has(c)) { seen.add(c); out.push(c); }
+      });
+      listTextarea.value = out.join('\n');
+    });
+    sortAZBtn.addEventListener('click', () => {
+      const arr = listTextarea.value.split('\n').map(x => cleanItem(x)).filter(Boolean);
+      arr.sort((a,b)=>a.localeCompare(b));
+      listTextarea.value = arr.join('\n');
+    });
+    clearListBtn.addEventListener('click', () => {
+      if (confirm('Clear all entries?')) listTextarea.value = '';
+    });
+
+    // ===== Prompt generation =====
+    function randFrom(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+    function getRandomFrom(letter) {
+      const list = lists[letter] || [];
+      return list.length ? randFrom(list) : null;
+    }
+    function cleanItem(s){ return String(s).replace(/^\s*-\s*/, '').replace(/\s+/g,' ').trim(); }
+
+    function getTagLabel(letter){
+      const nm = names[letter];
+      return (nm && nm.trim()) ? nm.trim() : letter;
+    }
+
+    function wordHtml(letter, txt){
+      const tag = showTags ? `<span class="tag">${escapeHtml(getTagLabel(letter))}</span>` : '';
+      return `<span class="w${letter}">${escapeHtml(txt)}${tag}</span>`;
+    }
+
+    function generatePrompt() {
+      let html = '';
+
+      if (mode === 'sequential') {
+        const arr = selectedOrder.length ? selectedOrder : [currentList];
+        const parts = [];
+        for (const l of arr) {
+          const it = getRandomFrom(l);
+          if (it) parts.push(wordHtml(l, cleanItem(it)));
+        }
+        html = parts.length ? parts.join(' ') : 'No prompts in selected lists';
+      } else if (mode === 'combine') {
+        const pool = selectedOrder.length ? selectedOrder : [currentList];
+        const chosenLetter = randFrom(pool);
+        const it = getRandomFrom(chosenLetter);
+        html = it ? wordHtml(chosenLetter, cleanItem(it)) : `[No items in ${getTagLabel(chosenLetter)}]`;
+      } else { // single
+        const letter = selectedOrder[0] || currentList;
+        const it = getRandomFrom(letter);
+        html = it ? wordHtml(letter, cleanItem(it)) : `[No items in ${getTagLabel(letter)}]`;
+      }
+
+      output.innerHTML = html;
+      outputRight.innerHTML = html; // mirror to right-page mini prompt
+      if (soundOn) speak(output.textContent);
+    }
+
+    function escapeHtml(s){
+      return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    // ===== Audio / Speech =====
+    function speak(text){
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'en-US'; u.volume = volume; u.rate = rate;
+        const all = window.speechSynthesis.getVoices();
+        if (randomVoicePerPrompt && voicePool.length) {
+          const chosen = randFrom(voicePool);
+          const match = all.find(v => v.name === chosen.name);
+          if (match) u.voice = match;
+        } else {
+          const v = all.find(v => (v.lang||'').toLowerCase().startsWith('en'));
+          if (v) u.voice = v;
+        }
+        speechSynthesis.cancel(); speechSynthesis.speak(u);
+      } catch(e){}
+    }
+    function setupVoices(){
+      function buildPool(all){
+        const en = all.filter(v => (v.lang||'').toLowerCase().startsWith('en'));
+        const picks=[];
+        function pick(list){ for (const v of list){ if (picks.length>=5) break; if(!picks.find(p=>p.name===v.name)) picks.push(v); } }
+        const female = en.filter(v=>/female/i.test(v.name));
+        const male = en.filter(v=>/male/i.test(v.name));
+        const us=en.filter(v=>/us/i.test(v.lang)||/US/i.test(v.name));
+        const uk=en.filter(v=>/gb|uk/i.test(v.lang)||/UK|English UK/i.test(v.name));
+        pick([...female,...male,...us,...uk]); pick(en); if(!picks.length) pick(all);
+        return picks.slice(0,5);
+      }
+      function refresh(){
+        const all=window.speechSynthesis.getVoices(); if(!all.length) return;
+        voicePool = buildPool(all);
+      }
+      window.speechSynthesis.onvoiceschanged = refresh;
+      refresh();
+    }
+
+    // ===== Topbar controls =====
+    function updateAutoBtn(){
+      autoBtn.textContent = autoPlay ? '⏸ Stop' : '▶️ Start';
+      autoBtn.title = autoPlay ? 'Stop automatic play' : 'Start automatic play';
+    }
+    function updateSoundBtn(){
+      soundBtn.textContent = soundOn ? '🔊 Sound: ON' : '🔇 Sound: OFF';
+    }
+    autoBtn.addEventListener('click', () => {
+      autoPlay = !autoPlay; localStorage.setItem('autoPlay', autoPlay); updateAutoBtn(); if (autoPlay) startTimer(); else stopTimer();
+    });
+    soundBtn.addEventListener('click', () => {
+      soundOn = !soundOn; localStorage.setItem('soundOn', soundOn); updateSoundBtn();
+    });
+
+    // Mode toggle (single-select) — RIGHT page
+    function setMode(newMode){
+      mode = newMode;
+      localStorage.setItem('mode', mode);
+      modeSequentialBtn.classList.toggle('active', mode==='sequential');
+      modeCombineBtn.classList.toggle('active', mode==='combine');
+      modeSingleBtn.classList.toggle('active', mode==='single');
+
+      // Enforce single-selection constraint when switching to 'single'
+      if (mode === 'single') {
+        if (!selectedOrder.length) selectedOrder = [currentList];
+        else selectedOrder = [selectedOrder[0]];
+      }
+      refreshSelectionBadges();
+      generatePrompt();
+    }
+    modeSequentialBtn.addEventListener('click', ()=> setMode('sequential'));
+    modeCombineBtn.addEventListener('click', ()=> setMode('combine'));
+    modeSingleBtn.addEventListener('click', ()=> setMode('single'));
+
+    // Tags toggle
+    function updateTagsBtn(){ tagsBtn.textContent = showTags ? '🏷 Tags: ON' : '🏷 Tags: OFF'; }
+    tagsBtn.addEventListener('click', ()=>{ showTags = !showTags; localStorage.setItem('showTags', showTags); updateTagsBtn(); generatePrompt(); });
+
+    // Timing
+    function setPreset(min,max,btnId){
+      minTime=min; maxTime=max; highlightTiming(btnId);
+      if (autoPlay) startTimer();
+      localStorage.setItem('minTime', String(minTime));
+      localStorage.setItem('maxTime', String(maxTime));
+    }
+    function highlightTiming(id){
+      [t5,t10,t30,t90,t150].forEach(b=>b.classList.remove('active'));
+      if (id) document.getElementById(id).classList.add('active');
+    }
+    t5.addEventListener('click', ()=>setPreset(5,10,'t5'));
+    t10.addEventListener('click',()=>setPreset(10,20,'t10'));
+    t30.addEventListener('click',()=>setPreset(30,60,'t30'));
+    t90.addEventListener('click',()=>setPreset(90,120,'t90'));
+    t150.addEventListener('click',()=>setPreset(150,300,'t150'));
+    applyCustom.addEventListener('click', ()=>{
+      const mi = parseInt(minCustom.value,10), ma = parseInt(maxCustom.value,10);
+      if (mi>0 && ma>=mi){ minTime=mi; maxTime=ma; highlightTiming(); if (autoPlay) startTimer();
+        localStorage.setItem('minTime', String(minTime)); localStorage.setItem('maxTime', String(maxTime)); }
+    });
+
+    function startTimer(){
+      stopTimer();
+      const delay = (Math.floor(Math.random()*(maxTime-minTime+1))+minTime)*1000;
+      timer = setTimeout(()=>{ generatePrompt(); if (autoPlay) startTimer(); }, delay);
+    }
+    function stopTimer(){ if (timer) clearTimeout(timer); timer=null; }
+
+    // Tap anywhere on prompt page -> next prompt
+    tapZone.addEventListener('click', (e) => {
+      if (e.target.closest('button, input, select, textarea')) return;
+      generatePrompt();
+    });
+    // Tap anywhere on RIGHT page (except controls) -> next prompt
+    rightPage.addEventListener('click', (e) => {
+      if (e.target.closest('button, input, select, textarea')) return;
+      generatePrompt();
+    });
+
+    // ===== Desktop keyboard: Enter and ANY key advance (unless typing/shortcuts) =====
+    function editorOpen(){ return editorPage && editorPage.style.display === 'flex'; }
+    function isEditableTarget(el){
+      return el && (
+        el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' ||
+        el.isContentEditable || el.closest('#editorPage')
+      );
+    }
+    document.addEventListener('keydown', (e) => {
+      // Keep browser/system shortcuts working
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // Don't advance when typing/editing
+      if (isEditableTarget(e.target) || editorOpen()) return;
+
+      // Prevent page scrolling on Space
+      if (e.key === ' ' || e.code === 'Space') e.preventDefault();
+
+      // Any key -> next prompt (Enter, letters, arrows, etc.)
+      generatePrompt();
+    });
+
+    // ===== Import / Export =====
+    exportBtn.addEventListener('click', ()=>{
+      const data = {
+        version: 3,
+        letters: LETTERS,
+        lists,
+        names,
+        selectedOrder,
+        mode,
+        showTags,
+        settings:{ autoPlay, soundOn, minTime, maxTime, volume, rate, randomVoicePerPrompt }
+      };
+      const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      const ts = new Date().toISOString().replace(/[:T]/g,'-').slice(0,19);
+      a.download = `prompt-generator-${ts}.json`; document.body.appendChild(a); a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },0);
+    });
+    importBtn.addEventListener('click',()=>importFile.click());
+    importFile.addEventListener('change',()=>{
+      const f = importFile.files && importFile.files[0]; if (!f) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        try{
+          const data = JSON.parse(reader.result);
+          if (data.lists) LETTERS.forEach(l=>{ lists[l] = Array.isArray(data.lists[l]) ? data.lists[l].map(cleanItem).filter(Boolean) : []; localStorage.setItem('promptList_'+l, JSON.stringify(lists[l])); });
+          if (data.names) { names = {...Object.fromEntries(LETTERS.map(l=>[l,''])), ...data.names }; localStorage.setItem('promptListNames', JSON.stringify(names)); refreshListNamesUI(); }
+          if (Array.isArray(data.selectedOrder)) { selectedOrder = data.selectedOrder.filter(x=>LETTERS.includes(x)); }
+          if (['sequential','combine','single'].includes(data.mode)) { mode = data.mode; }
+          showTags = !!data.showTags;
+
+          if (data.settings){
+            const s = data.settings;
+            autoPlay = !!s.autoPlay; soundOn = !!s.soundOn;
+            minTime = Number.isFinite(s.minTime)? s.minTime : minTime;
+            maxTime = Number.isFinite(s.maxTime)? s.maxTime : maxTime;
+            volume = typeof s.volume==='number' ? Math.max(0,Math.min(1,s.volume)) : volume;
+            rate   = typeof s.rate==='number'   ? Math.max(0.6,Math.min(1.6,s.rate)) : rate;
+            randomVoicePerPrompt = !!s.randomVoicePerPrompt;
+          }
+          updateAutoBtn(); updateSoundBtn(); updateTagsBtn();
+          volRange.value = Math.round(volume*100); volReadout.textContent = 'Volume: ' + Math.round(volume*100) + '%';
+          rateRange.value = Math.round(rate*100);  rateReadout.textContent = 'Rate: ' + rate.toFixed(2) + '×';
+          modeSequentialBtn.classList.toggle('active', mode==='sequential');
+          modeCombineBtn.classList.toggle('active', mode==='combine');
+          modeSingleBtn.classList.toggle('active', mode==='single');
+          buildListGrid(); refreshSelectionBadges(); generatePrompt();
+          alert('Import complete.');
+        }catch(err){ alert('Import failed: ' + err.message); }
+        importFile.value='';
+      };
+      reader.readAsText(f);
+    });
+
+    // ===== Swipe navigation (left/center/right) =====
+    let pageIndex = 1; // 0=left,1=center,2=right
+    function applyPage() {
+      pages.style.transform = `translateX(${-(pageIndex)*100}vw)`;
+      document.body.className = 'page-' + pageIndex;
+    }
+    function goLeft(){ pageIndex = Math.max(0, pageIndex-1); applyPage(); }
+    function goRight(){ pageIndex = Math.min(2, pageIndex+1); applyPage(); }
+
+    let sx=0, sy=0, moved=false;
+    const SWIPE_X=60, SWIPE_Y=60;
+    pages.addEventListener('touchstart', (e)=>{
+      if (e.touches.length!==1) return;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; moved=false;
+    }, {passive:true});
+    pages.addEventListener('touchmove', ()=>{ moved=true; }, {passive:true});
+    pages.addEventListener('touchend', (e)=>{
+      if (!moved) return;
+      const dx = e.changedTouches[0].clientX - sx;
+      const dy = Math.abs(e.changedTouches[0].clientY - sy);
+      if (dy > SWIPE_Y) return;
+      if (dx > SWIPE_X) goLeft();
+      else if (dx < -SWIPE_X) goRight();
+    }, {passive:true});
+
+    // ===== Utils =====
+    function attachLongPress(el, ms, fn){
+      let t=null, startX=0, startY=0;
+      el.addEventListener('touchstart', (e)=>{
+        if (e.touches.length!==1) return;
+        startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+        t = setTimeout(()=>fn(), ms);
+      }, {passive:true});
+      el.addEventListener('touchmove', (e)=>{
+        if (!t) return;
+        const dx=Math.abs(e.touches[0].clientX-startX), dy=Math.abs(e.touches[0].clientY-startY);
+        if (dx>15 || dy>15) { clearTimeout(t); t=null; }
+      }, {passive:true});
+      el.addEventListener('touchend', ()=>{ if (t){ clearTimeout(t); t=null; } }, {passive:true});
+      // Desktop fallback
+      el.addEventListener('contextmenu', (e)=>{ e.preventDefault(); fn(); });
+      el.addEventListener('dblclick', ()=>fn());
+    }
+
+    // ===== Load / Boot =====
+    function updateTagsBtn(){ tagsBtn.textContent = showTags ? '🏷 Tags: ON' : '🏷 Tags: OFF'; }
+    function loadState(){
+      // lists
+      LETTERS.forEach(l=>{
+        try{
+          const raw = localStorage.getItem('promptList_'+l);
+          if (raw) lists[l] = JSON.parse(raw) || [];
+        }catch{}
+      });
+      // names
+      try{
+        const sn = JSON.parse(localStorage.getItem('promptListNames')||'{}');
+        names = {...names, ...sn};
+      }catch{}
+
+      // selection
+      try{
+        const sel = JSON.parse(localStorage.getItem('selectedOrder')||'[]');
+        selectedOrder = sel.filter(x=>LETTERS.includes(x));
+      }catch{}
+
+      // settings
+      autoPlay = localStorage.getItem('autoPlay') === 'true';
+      soundOn = localStorage.getItem('soundOn') !== 'false';
+      const v = parseFloat(localStorage.getItem('volume')); if (!isNaN(v)) volume = Math.max(0,Math.min(1,v));
+      const r = parseFloat(localStorage.getItem('rate')); if (!isNaN(r)) rate = Math.max(0.6,Math.min(1.6,r));
+      randomVoicePerPrompt = localStorage.getItem('randomVoicePerPrompt') === 'true';
+      showTags = localStorage.getItem('showTags') === 'true';
+      const mt = parseInt(localStorage.getItem('minTime'),10); if (Number.isFinite(mt)) minTime = mt;
+      const mx = parseInt(localStorage.getItem('maxTime'),10); if (Number.isFinite(mx)) maxTime = mx;
+
+      // mode
+      const savedMode = localStorage.getItem('mode');
+      if (['sequential','combine','single'].includes(savedMode)) mode = savedMode;
+
+      // If single mode with no selection yet, seed it
+      if (mode === 'single' && !selectedOrder.length) selectedOrder = [currentList];
+
+      // UI reflect
+      updateAutoBtn(); updateSoundBtn(); updateTagsBtn();
+      volRange.value = Math.round(volume*100); volReadout.textContent = 'Volume: ' + Math.round(volume*100) + '%';
+      rateRange.value = Math.round(rate*100);  rateReadout.textContent = 'Rate: ' + rate.toFixed(2) + '×';
+      modeSequentialBtn.classList.toggle('active', mode==='sequential');
+      modeCombineBtn.classList.toggle('active', mode==='combine');
+      modeSingleBtn.classList.toggle('active', mode==='single');
+      if      (minTime===5 && maxTime===10) highlightTiming('t5');
+      else if (minTime===10&& maxTime===20) highlightTiming('t10');
+      else if (minTime===30&& maxTime===60) highlightTiming('t30');
+      else if (minTime===90&& maxTime===120)highlightTiming('t90');
+      else if (minTime===150&&maxTime===300)highlightTiming('t150');
+      else highlightTiming(); // custom
+      minCustom.value = minTime; maxCustom.value = maxTime;
+    }
+
+    function init(){
+      loadState();
+      buildListGrid();
+      setupVoices();
+      applyPage(); // center
+      generatePrompt();
+      if (autoPlay) startTimer();
+    }
+    init();
+  </script>
+</body>
+</html>
