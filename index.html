@@ -213,7 +213,7 @@
 
     <!-- RIGHT: Grid + reset + modes + bottom prompt -->
     <section class="page" id="rightPage">
-      <div id="gridHelp">Tap to select; long-press <strong>2s</strong> to edit & rename. Badge shows order (Sequential), ✓ (Combine), or ● (Single).</div>
+      <div id="gridHelp">Tap to select; long-press <strong>2.5s</strong> to edit & rename. Badge shows order (Sequential), ✓ (Combine), or ● (Single).</div>
       <div id="listGrid" aria-label="Lists grid"></div>
 
       <div class="row" style="margin-top:10px;">
@@ -369,8 +369,8 @@
         // Tap: selection behavior depends on mode
         btn.addEventListener('click', () => toggleSelected(l));
 
-        // Long-press (2 seconds): open editor (rename + full list edit)
-        attachLongPress(btn, 2000, () => openEditor(l));
+        // Long-press (2.5 seconds): open editor (rename + full list edit)
+        attachLongPress(btn, 2500, () => openEditor(l));
 
         listGrid.appendChild(btn);
       });
