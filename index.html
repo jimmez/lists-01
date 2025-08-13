@@ -134,7 +134,7 @@
       width:100%; max-width: var(--maxw);
       height: 100%;
       overflow: auto;           /* scroll inside when long */
-      display: block;           /* no centering — start at top */
+      display: block;           /* start at top */
       padding: 2px 4px;
     }
     #outputRight {
@@ -377,7 +377,10 @@
         btn.appendChild(badge);
 
         // Tap: selection behavior depends on mode
-        btn.addEventListener('click', () => onListButtonTap(l));
+        btn.addEventListener('click', (e) => {
+          if (btn._lpFired) { btn._lpFired = false; return; } // suppress click after long-press
+          onListButtonTap(l);
+        });
 
         // Long-press (2.5 seconds): open editor (rename + full list edit)
         attachLongPress(btn, 2500, () => openEditor(l));
@@ -669,7 +672,7 @@
       if (e.target.closest('button, input, select, textarea')) return;
       generatePrompt();
     });
-    // Also allow tapping the dock to advance (no extra spacer needed)
+    // Also allow tapping the dock to advance
     document.getElementById('rightPromptWrap').addEventListener('click', (e)=>{
       if (e.target.closest('button, input, select, textarea')) return;
       generatePrompt();
@@ -700,7 +703,7 @@
     // ===== Import / Export =====
     exportBtn.addEventListener('click', ()=>{
       const data = {
-        version: 5,
+        version: 6,
         letters: LETTERS,
         lists,
         names,
@@ -778,21 +781,40 @@
 
     // ===== Utils =====
     function attachLongPress(el, ms, fn){
-      let t=null, startX=0, startY=0;
-      el.addEventListener('touchstart', (e)=>{
-        if (e.touches.length!==1) return;
-        startX = e.touches[0].clientX; startY = e.touches[0].clientY;
-        t = setTimeout(()=>fn(), ms);
-      }, {passive:true});
-      el.addEventListener('touchmove', (e)=>{
+      let t=null, startX=0, startY=0, moved=false;
+      const TH=15;
+
+      function start(x,y){
+        clearTimeout(t);
+        el._lpFired = false;
+        startX=x; startY=y; moved=false;
+        t=setTimeout(()=>{ el._lpFired=true; fn(); }, ms);
+      }
+      function move(x,y){
         if (!t) return;
-        const dx=Math.abs(e.touches[0].clientX-startX), dy=Math.abs(e.touches[0].clientY-startY);
-        if (dx>15 || dy>15) { clearTimeout(t); t=null; }
+        if (Math.abs(x-startX)>TH || Math.abs(y-startY)>TH){ clearTimeout(t); t=null; }
+      }
+      function end(){ if (t){ clearTimeout(t); t=null; } }
+
+      // Touch
+      el.addEventListener('touchstart', e=>{
+        if (e.touches.length!==1) return;
+        const p=e.touches[0]; start(p.clientX,p.clientY);
       }, {passive:true});
-      el.addEventListener('touchend', ()=>{ if (t){ clearTimeout(t); t=null; } }, {passive:true});
-      // Desktop fallback
-      el.addEventListener('contextmenu', (e)=>{ e.preventDefault(); fn(); });
-      el.addEventListener('dblclick', ()=>fn());
+      el.addEventListener('touchmove', e=>{
+        if (!t) return;
+        const p=e.touches[0]; move(p.clientX,p.clientY);
+      }, {passive:true});
+      el.addEventListener('touchend', end, {passive:true});
+      el.addEventListener('touchcancel', end, {passive:true});
+
+      // Mouse (hold)
+      el.addEventListener('mousedown', e=>{
+        if (e.button!==0) return; // left button only
+        start(e.clientX, e.clientY);
+      });
+      document.addEventListener('mousemove', e=>{ if (!t) return; move(e.clientX,e.clientY); });
+      document.addEventListener('mouseup', end);
     }
 
     // ===== Load / Boot =====
